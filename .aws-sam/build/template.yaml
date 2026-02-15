@@ -1,0 +1,63 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Resources:
+  OrdersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: FlashSaleOrders
+      AttributeDefinitions:
+      - AttributeName: orderId
+        AttributeType: S
+      KeySchema:
+      - AttributeName: orderId
+        KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+  OrderQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      VisibilityTimeout: 30
+  OrderApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/producer.handler
+      Runtime: nodejs18.x
+      Events:
+        CreateOrder:
+          Type: Api
+          Properties:
+            Path: /orders
+            Method: post
+      Environment:
+        Variables:
+          QUEUE_URL:
+            Ref: OrderQueue
+      Policies:
+      - SQSSendMessagePolicy:
+          QueueName:
+            Fn::GetAtt:
+            - OrderQueue
+            - QueueName
+      CodeUri: OrderApiFunction
+    Metadata:
+      SamResourceId: OrderApiFunction
+  OrderProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/worker.handler
+      Runtime: nodejs18.x
+      Events:
+        MySQSEvent:
+          Type: SQS
+          Properties:
+            Queue:
+              Fn::GetAtt:
+              - OrderQueue
+              - Arn
+            BatchSize: 10
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: OrdersTable
+      CodeUri: OrderProcessorFunction
+    Metadata:
+      SamResourceId: OrderProcessorFunction

@@ -1,0 +1,57 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+
+Resources:
+  # 1. The Database
+  OrdersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: FlashSaleOrders
+      AttributeDefinitions:
+        - AttributeName: orderId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: orderId
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST # Instant scaling for spikes
+
+  # 2. The Buffer (Queue)
+  OrderQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      VisibilityTimeout: 30 # Must be >= Lambda timeout
+
+  # 3. The API and Producer Lambda
+  OrderApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/producer.handler
+      Runtime: nodejs18.x
+      Events:
+        CreateOrder:
+          Type: Api
+          Properties:
+            Path: /orders
+            Method: post
+      Environment:
+        Variables:
+          QUEUE_URL: !Ref OrderQueue
+      Policies:
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt OrderQueue.QueueName
+
+  # 4. The Worker Lambda (Writes to DB)
+  OrderProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/worker.handler
+      Runtime: nodejs18.x
+      Events:
+        MySQSEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt OrderQueue.Arn
+            BatchSize: 10 # Process 10 orders at once
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref OrdersTable

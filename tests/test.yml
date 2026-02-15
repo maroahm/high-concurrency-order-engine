@@ -1,0 +1,12 @@
+config:
+  target: "YOUR_API_GATEWAY_URL"
+  phases:
+    - duration: 60
+      arrivalRate: 50 # 50 new users per second
+scenarios:
+  - flow:
+      - post:
+          url: "/orders"
+          json:
+            item: "Gaming Laptop"
+            price: 999
